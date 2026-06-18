@@ -315,4 +315,465 @@
                     const borderClass = color === 'red' ? 'border-red-950' : 'border-slate-950';
 
                     const numElement = document.createElement('div');
-                    numElement.cl
+                    numElement.className = `bet-spot h-10 border ${borderClass} ${bgClass} transition flex flex-col items-center justify-center cursor-pointer relative text-sm font-bold text-white`;
+                    numElement.setAttribute('data-bet-type', 'number');
+                    numElement.setAttribute('data-bet-val', num);
+                    
+                    numElement.innerHTML = `
+                        <span>${num}</span>
+                        <span class="text-[8px] text-slate-400 font-normal">1 賠 35</span>
+                        <div class="chip-indicator absolute inset-0 m-auto w-7 h-7 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black flex items-center justify-center shadow-lg border border-white hidden">0</div>
+                    `;
+                    gridContainer.appendChild(numElement);
+                });
+            });
+        }
+
+        function initChips() {
+            const chipButtons = document.querySelectorAll('.chip-btn');
+            chipButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    chipButtons.forEach(b => b.classList.remove('ring-4', 'ring-amber-500/50'));
+                    btn.classList.add('ring-4', 'ring-amber-500/50');
+                    activeChip = parseInt(btn.getAttribute('data-value'));
+                });
+            });
+        }
+
+        function updateBalanceDisplay() {
+            document.getElementById('balance-display').innerText = playerBalance.toLocaleString();
+            const totalBet = activeBets.reduce((sum, b) => sum + b.amount, 0);
+            document.getElementById('total-bet-display').innerText = totalBet.toLocaleString();
+        }
+
+        function setupEventListeners() {
+            document.addEventListener('click', function(e) {
+                const betSpot = e.target.closest('.bet-spot');
+                if (!betSpot || isSpinning) return;
+
+                const type = betSpot.getAttribute('data-bet-type');
+                const val = betSpot.getAttribute('data-bet-val');
+
+                placeBet(type, val, betSpot);
+            });
+
+            document.getElementById('clear-bets-btn').addEventListener('click', () => {
+                if (isSpinning) return;
+                refundBets();
+            });
+
+            document.getElementById('spin-btn').addEventListener('click', startSpin);
+
+            document.getElementById('reset-balance-btn').addEventListener('click', () => {
+                if (isSpinning) return;
+                playerBalance = 10000;
+                refundBets();
+                updateBalanceDisplay();
+                showStatus("籌碼已重新調整為 10,000！");
+            });
+        }
+
+        // 點擊下注
+        function placeBet(type, val, element) {
+            if (playerBalance < activeChip) {
+                showStatus("⚠️ 餘額不足，請更換面額或重設籌碼！", "text-red-400");
+                return;
+            }
+
+            playerBalance -= activeChip;
+
+            const existingBet = activeBets.find(b => b.type === type && b.val === val);
+            if (existingBet) {
+                existingBet.amount += activeChip;
+            } else {
+                activeBets.push({
+                    type: type,
+                    val: val,
+                    amount: activeChip,
+                    payout: payouts[type],
+                    element: element
+                });
+            }
+
+            updateBalanceDisplay();
+            updateTableChipIndicators();
+            updateBetsList();
+            showStatus(`已在 【${getBetName(type, val)}】 下注 ${activeChip} 籌碼！`);
+        }
+
+        // 退還所有下注
+        function refundBets() {
+            const totalBet = activeBets.reduce((sum, b) => sum + b.amount, 0);
+            playerBalance += totalBet;
+            activeBets = [];
+            updateBalanceDisplay();
+            updateTableChipIndicators();
+            updateBetsList();
+            showStatus("已收回所有下注籌碼。");
+        }
+
+        function updateTableChipIndicators() {
+            const allIndicators = document.querySelectorAll('.chip-indicator');
+            allIndicators.forEach(ind => {
+                ind.classList.add('hidden');
+                ind.innerText = '0';
+            });
+
+            activeBets.forEach(bet => {
+                if (bet.element) {
+                    const ind = bet.element.querySelector('.chip-indicator');
+                    if (ind) {
+                        ind.classList.remove('hidden');
+                        ind.innerText = bet.amount >= 1000 ? (bet.amount / 1000) + 'K' : bet.amount;
+                    }
+                }
+            });
+        }
+
+        function updateBetsList() {
+            const listContainer = document.getElementById('bets-list');
+            if (activeBets.length === 0) {
+                listContainer.innerHTML = `<div class="text-slate-500 italic py-2">尚未進行任何投注。請點擊上方桌面任意位置下注！</div>`;
+                return;
+            }
+
+            let html = '<div class="grid grid-cols-3 gap-2 font-bold border-b border-slate-800 pb-1 mb-1 text-slate-400 text-xs text-center"><div>投注標的</div><div>投注額</div><div>預估可得(含本金)</div></div>';
+            activeBets.forEach(bet => {
+                const potentialWin = bet.amount * bet.payout + bet.amount;
+                html += `
+                    <div class="grid grid-cols-3 gap-2 py-1 text-center border-b border-slate-800/50 hover:bg-slate-800/30 rounded">
+                        <div class="text-amber-300 font-semibold">${getBetName(bet.type, bet.val)}</div>
+                        <div class="text-slate-100">${bet.amount.toLocaleString()}</div>
+                        <div class="text-emerald-400">+${potentialWin.toLocaleString()}</div>
+                    </div>
+                `;
+            });
+            listContainer.innerHTML = html;
+        }
+
+        function getBetName(type, val) {
+            let desc = '';
+            if (type === 'number') {
+                desc = `數字 ${val}`;
+            } else if (type === 'dozen') {
+                const dozenNames = { '1': '前 12 號 (1-12)', '2': '中 12 號 (13-24)', '3': '後 12 號 (25-36)' };
+                desc = dozenNames[val];
+            } else if (type === 'half') {
+                desc = val === 'low' ? '小 (1-18)' : '大 (19-36)';
+            } else if (type === 'parity') {
+                desc = val === 'even' ? '雙數 (Even)' : '單數 (Odd)';
+            } else if (type === 'color') {
+                desc = val === 'red' ? '紅色 (Red)' : '黑色 (Black)';
+            }
+            return `${desc} (1 賠 ${payouts[type]})`;
+        }
+
+        function showStatus(text, colorClass = "text-slate-200") {
+            const statusBox = document.getElementById('status-display');
+            statusBox.className = `text-sm font-medium ${colorClass}`;
+            statusBox.innerText = text;
+        }
+
+        // --- 輪盤與動畫 (Canvas 繪製與旋轉) ---
+
+        function drawWheel(angle, ballAngleOffset) {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = 150;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. 外圈木紋
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius + 15, 0, 2 * Math.PI);
+            const woodGrad = ctx.createRadialGradient(centerX, centerY, radius, centerX, centerY, radius + 15);
+            woodGrad.addColorStop(0, '#78350f'); 
+            woodGrad.addColorStop(1, '#451a03'); 
+            ctx.fillStyle = woodGrad;
+            ctx.fill();
+            ctx.strokeStyle = '#27272a';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 2. 金屬軌道
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+            ctx.fillStyle = '#1e293b'; 
+            ctx.fill();
+
+            // 3. 37個數字扇形
+            const sliceAngle = (2 * Math.PI) / 37;
+            for (let i = 0; i < 37; i++) {
+                const currentNum = wheelNumbers[i];
+                const startRad = angle + (i * sliceAngle) - (sliceAngle / 2);
+                const endRad = startRad + sliceAngle;
+
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.arc(centerX, centerY, radius - 10, startRad, endRad);
+                ctx.closePath();
+
+                if (currentNum === 0) {
+                    ctx.fillStyle = '#10b981'; 
+                } else if (numberColors[currentNum] === 'red') {
+                    ctx.fillStyle = '#ef4444'; 
+                } else {
+                    ctx.fillStyle = '#0f172a'; 
+                }
+                ctx.fill();
+
+                ctx.strokeStyle = 'rgba(217, 119, 6, 0.4)'; 
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(startRad + sliceAngle / 2);
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 10px sans-serif";
+                ctx.fillText(currentNum.toString(), radius - 22, 0);
+                ctx.restore();
+            }
+
+            // 4. 金屬中心
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius - 50, 0, 2 * Math.PI);
+            const centerGrad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius - 50);
+            centerGrad.addColorStop(0, '#fef08a'); 
+            centerGrad.addColorStop(0.7, '#d97706'); 
+            centerGrad.addColorStop(1, '#78350f'); 
+            ctx.fillStyle = centerGrad;
+            ctx.fill();
+            ctx.strokeStyle = '#451a03';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 5. 小球
+            if (ballAngleOffset !== null) {
+                const totalBallAngle = angle + ballAngleOffset;
+                const ballX = centerX + Math.cos(totalBallAngle) * ballRadius;
+                const ballY = centerY + Math.sin(totalBallAngle) * ballRadius;
+
+                ctx.beginPath();
+                ctx.arc(ballX, ballY, 7, 0, 2 * Math.PI);
+                const ballGrad = ctx.createRadialGradient(ballX - 2, ballY - 2, 1, ballX, ballY, 7);
+                ballGrad.addColorStop(0, '#ffffff');
+                ballGrad.addColorStop(0.8, '#e2e8f0');
+                ballGrad.addColorStop(1, '#94a3b8');
+                ctx.fillStyle = ballGrad;
+                ctx.fill();
+                ctx.stroke();
+            }
+        }
+
+        // --- 旋轉起動與開獎動畫機制 (已解除「必須下注」限制) ---
+
+        function startSpin() {
+            if (isSpinning) return;
+
+            isSpinning = true;
+            document.getElementById('spin-btn').disabled = true;
+            document.getElementById('clear-bets-btn').disabled = true;
+            
+            // 重設開獎看板為旋轉中狀態
+            document.getElementById('inline-num-val').innerText = '...';
+            document.getElementById('inline-num-ball').className = "w-16 h-16 rounded-full flex flex-col items-center justify-center text-2xl font-black text-white shadow-md border-2 border-slate-700 bg-slate-700 animate-pulse";
+            document.getElementById('inline-num-desc').innerText = "旋轉中...";
+            document.getElementById('inline-win-status').className = "text-lg font-bold text-slate-400";
+            document.getElementById('inline-win-status').innerText = "等待開獎...";
+
+            const hasBets = activeBets.length > 0;
+            if (hasBets) {
+                showStatus("🔮 輪盤自轉中，小球反向拋入...", "text-amber-400");
+            } else {
+                showStatus("🔮 觀戰模式：輪盤自轉中，小球反向拋入...", "text-slate-400");
+            }
+
+            // 全隨機選取中獎號碼
+            const winningNumber = Math.floor(Math.random() * 37);
+            const winningIndex = wheelNumbers.indexOf(winningNumber);
+            const sliceAngle = (2 * Math.PI) / 37;
+
+            // 輪盤自轉與緩動設置 (順時針旋轉 4~6 圈)
+            const startWheelAngle = currentAngle;
+            const totalWheelRotation = (4 + Math.random() * 2) * 2 * Math.PI;
+            const finalWheelAngle = startWheelAngle + totalWheelRotation;
+
+            // 小球相對自轉設置 (逆時針旋轉)
+            let startBallOffset = lastBallOffset % (2 * Math.PI);
+            if (startBallOffset < 0) startBallOffset += 2 * Math.PI;
+
+            // 中獎格子目標相對偏角
+            const targetBallOffset = winningIndex * sliceAngle;
+
+            // 計算旋轉圈數，確保不發生瞬移
+            const spins = 5 + Math.floor(Math.random() * 3); 
+            const finalBallOffset = targetBallOffset - spins * 2 * Math.PI;
+
+            const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+            const easeOutQuart = t => 1 - Math.pow(1 - t, 4);
+
+            const duration = 4000; // 固定 4 秒高擬真動畫
+            const startTime = performance.now();
+
+            // 移除先前的閃爍高亮
+            document.getElementById('status-panel').classList.remove('new-result-flash');
+
+            function animate(now) {
+                const elapsed = now - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+
+                // 輪盤平滑前進
+                const wheelProgress = easeOutCubic(progress);
+                const currentWheelAngle = startWheelAngle + (finalWheelAngle - startWheelAngle) * wheelProgress;
+
+                // 小球平滑落入
+                const ballProgress = easeOutQuart(progress);
+                let currentBallOffset = startBallOffset + (finalBallOffset - startBallOffset) * ballProgress;
+
+                // 物理微震落格效果
+                if (progress > 0.85) {
+                    const wobbleProgress = (progress - 0.85) / 0.15; 
+                    const wobble = Math.sin(wobbleProgress * Math.PI * 3) * 0.02 * (1 - wobbleProgress);
+                    currentBallOffset += wobble;
+                }
+
+                ballRadius = 140 - ballProgress * 20; 
+
+                // 繪製最新位置
+                drawWheel(currentWheelAngle, currentBallOffset);
+
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    currentAngle = finalWheelAngle;
+                    lastBallOffset = finalBallOffset; 
+
+                    // 內嵌結算
+                    evaluateResults(winningNumber);
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // --- 內嵌結算機制 (不彈出視窗) ---
+
+        function evaluateResults(winningNum) {
+            isSpinning = false;
+            document.getElementById('spin-btn').disabled = false;
+            document.getElementById('clear-bets-btn').disabled = false;
+
+            const winColor = numberColors[winningNum];
+            let totalWin = 0;
+            const hasBets = activeBets.length > 0;
+
+            activeBets.forEach(bet => {
+                let isWin = false;
+
+                if (bet.type === 'number') {
+                    isWin = parseInt(bet.val) === winningNum;
+                } else if (bet.type === 'color') {
+                    isWin = winningNum !== 0 && winColor === bet.val;
+                } else if (bet.type === 'parity') {
+                    if (winningNum !== 0) {
+                        const isEven = winningNum % 2 === 0;
+                        isWin = (bet.val === 'even' && isEven) || (bet.val === 'odd' && !isEven);
+                    }
+                } else if (bet.type === 'half') {
+                    if (winningNum !== 0) {
+                        const isLow = winningNum >= 1 && winningNum <= 18;
+                        isWin = (bet.val === 'low' && isLow) || (bet.val === 'high' && !isLow);
+                    }
+                } else if (bet.type === 'dozen') {
+                    if (winningNum !== 0) {
+                        if (bet.val === '1' && winningNum >= 1 && winningNum <= 12) isWin = true;
+                        if (bet.val === '2' && winningNum >= 13 && winningNum <= 24) isWin = true;
+                        if (bet.val === '3' && winningNum >= 25 && winningNum <= 36) isWin = true;
+                    }
+                }
+
+                if (isWin) {
+                    const profit = bet.amount * bet.payout;
+                    totalWin += (bet.amount + profit);
+                }
+            });
+
+            // 1. 調整玩家餘額
+            playerBalance += totalWin;
+            updateBalanceDisplay();
+
+            // 2. 更新開獎看板 UI
+            const numBall = document.getElementById('inline-num-ball');
+            const numVal = document.getElementById('inline-num-val');
+            const numDesc = document.getElementById('inline-num-desc');
+            const winStatus = document.getElementById('inline-win-status');
+
+            // 渲染號碼球顏色
+            numBall.className = "w-16 h-16 rounded-full flex flex-col items-center justify-center text-2xl font-black text-white shadow-md border-2 border-slate-700 transition-all duration-300 transform scale-105";
+            if (winColor === 'green') {
+                numBall.classList.add('bg-emerald-600');
+                numDesc.innerText = `0 號 (綠色)`;
+            } else if (winColor === 'red') {
+                numBall.classList.add('bg-red-600');
+                numDesc.innerText = `${winningNum} 號 (紅色 / ${winningNum % 2 === 0 ? '雙' : '單'})`;
+            } else {
+                numBall.classList.add('bg-slate-800');
+                numDesc.innerText = `${winningNum} 號 (黑色 / ${winningNum % 2 === 0 ? '雙' : '單'})`;
+            }
+            numVal.innerText = winningNum;
+
+            // 顯示輸贏狀態與狀態提示
+            if (hasBets) {
+                if (totalWin > 0) {
+                    winStatus.innerText = `+${totalWin.toLocaleString()}`;
+                    winStatus.className = "text-xl font-black text-emerald-400";
+                    showStatus(`🎯 開獎結束！您猜中了，贏得 ${totalWin.toLocaleString()} 籌碼！`, "text-emerald-400");
+                } else {
+                    winStatus.innerText = "未中獎";
+                    winStatus.className = "text-lg font-bold text-slate-400";
+                    showStatus(`❌ 開獎結束，本局未中獎。再接再厲！`, "text-slate-400");
+                }
+            } else {
+                // 觀戰模式下的 UI 更新
+                winStatus.innerText = "觀戰無下注";
+                winStatus.className = "text-sm font-semibold text-slate-400";
+                showStatus(`✨ 觀戰結束！開出 ${winningNum} 號。下局試試手氣吧！`, "text-amber-400/90");
+            }
+
+            // 新增動態閃爍提示
+            document.getElementById('status-panel').classList.add('new-result-flash');
+
+            // 3. 更新歷史紀錄
+            addHistory(winningNum);
+
+            // 4. 清空當局投注準備下一局
+            activeBets = [];
+            updateTableChipIndicators();
+            updateBetsList();
+        }
+
+        function addHistory(num) {
+            history.unshift(num);
+            if (history.length > 7) history.pop();
+
+            const container = document.getElementById('history-container');
+            container.innerHTML = '';
+
+            history.forEach(item => {
+                const color = numberColors[item];
+                let bgClass = 'bg-emerald-600';
+                if (color === 'red') bgClass = 'bg-red-600';
+                if (color === 'black') bgClass = 'bg-slate-800';
+
+                const badge = document.createElement('span');
+                badge.className = `${bgClass} text-white font-black text-xs px-2.5 py-1 rounded-md min-w-[28px] text-center shadow`;
+                badge.innerText = item;
+                container.appendChild(badge);
+            });
+        }
+    </script>
+</body>
+</html>
