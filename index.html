@@ -55,7 +55,7 @@
                 </div>
                 <!-- 重新開始按鈕 -->
                 <button id="reset-balance-btn" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white px-3 py-1.5 rounded transition border border-slate-700">
-                    重設籌碼
+                    重製還原
                 </button>
             </div>
         </div>
@@ -276,6 +276,7 @@
         };
 
         let playerBalance = 10000;
+        let savedBalance = 10000; // 新增：用於記錄每次開獎結束後的籌碼餘額 checkpoint
         let activeChip = 1000; 
         let activeBets = []; 
         let isSpinning = false;
@@ -366,10 +367,12 @@
 
             document.getElementById('reset-balance-btn').addEventListener('click', () => {
                 if (isSpinning) return;
-                playerBalance = 10000;
-                refundBets();
+                activeBets = []; // 直接清除下注區的所有籌碼，不退還
+                playerBalance = savedBalance; // 將籌碼餘額恢復到上次開獎後的紀錄值
                 updateBalanceDisplay();
-                showStatus("籌碼已重新調整為 10,000！");
+                updateTableChipIndicators();
+                updateBetsList();
+                showStatus(`已重製！下注已清空，餘額已還原至上局開獎紀錄：${playerBalance.toLocaleString()}`);
             });
         }
 
@@ -701,8 +704,9 @@
                 }
             });
 
-            // 1. 調整玩家餘額
+            // 1. 調整玩家餘額並進行存檔紀錄
             playerBalance += totalWin;
+            savedBalance = playerBalance; // 新增：開完獎後立即記錄目前籌碼數量作為還原點
             updateBalanceDisplay();
 
             // 2. 更新開獎看板 UI
